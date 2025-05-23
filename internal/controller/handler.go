@@ -8,24 +8,72 @@ import (
 	"time"
 
 	"github.com/gorilla/mux"
-
 	"github.com/ukawop/brandscout_test_task/internal/models"
 	"github.com/ukawop/brandscout_test_task/internal/service"
 )
 
-type Handler struct {
-	service *service.QuoteService
-	logger  *log.Logger
+type AsyncHandler struct {
+	service   *service.QuoteService
+	logger    *log.Logger
+	taskQueue chan asyncTask
 }
 
-func NewHandler(service *service.QuoteService, logger *log.Logger) *Handler {
-	return &Handler{
-		service: service,
-		logger:  logger,
+type asyncTask struct {
+	operation string // "create", "getAll", "getRandom", "delete"
+	request   *http.Request
+	writer    http.ResponseWriter
+	doneChan  chan struct{}
+}
+
+func NewAsyncHandler(service *service.QuoteService, logger *log.Logger, maxWorkers int) *AsyncHandler {
+	h := &AsyncHandler{
+		service:   service,
+		logger:    logger,
+		taskQueue: make(chan asyncTask, 100),
+	}
+
+	for i := 0; i < maxWorkers; i++ {
+		go h.worker(i)
+	}
+
+	return h
+}
+
+func (h *AsyncHandler) worker(id int) {
+	for task := range h.taskQueue {
+		start := time.Now()
+		h.logger.Printf("Worker %d started %s task", id, task.operation)
+
+		switch task.operation {
+		case "create":
+			h.handleCreate(task.writer, task.request)
+		case "getAll":
+			h.handleGetAll(task.writer, task.request)
+		case "getRandom":
+			h.handleGetRandom(task.writer, task.request)
+		case "delete":
+			h.handleDelete(task.writer, task.request)
+		}
+
+		h.logger.Printf("Worker %d finished %s task in %v", id, task.operation, time.Since(start))
+		close(task.doneChan)
 	}
 }
 
-func (h *Handler) CreateQuote(w http.ResponseWriter, r *http.Request) {
+func (h *AsyncHandler) wrapHandler(operation string) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		done := make(chan struct{})
+		h.taskQueue <- asyncTask{
+			operation: operation,
+			request:   r,
+			writer:    w,
+			doneChan:  done,
+		}
+		<-done
+	}
+}
+
+func (h *AsyncHandler) handleCreate(w http.ResponseWriter, r *http.Request) {
 	start := time.Now()
 
 	var req models.QuoteRequest
@@ -48,7 +96,7 @@ func (h *Handler) CreateQuote(w http.ResponseWriter, r *http.Request) {
 	h.logger.Printf("Цитата создана (ID: %d). Время выполнения: %v", quote.ID, time.Since(start))
 }
 
-func (h *Handler) GetAllQuotes(w http.ResponseWriter, r *http.Request) {
+func (h *AsyncHandler) handleGetAll(w http.ResponseWriter, r *http.Request) {
 	start := time.Now()
 	author := r.URL.Query().Get("author")
 
@@ -71,7 +119,7 @@ func (h *Handler) GetAllQuotes(w http.ResponseWriter, r *http.Request) {
 	h.logger.Printf("Возвращено %d цитат. Время выполнения: %v", len(quotes), time.Since(start))
 }
 
-func (h *Handler) GetRandomQuote(w http.ResponseWriter, r *http.Request) {
+func (h *AsyncHandler) handleGetRandom(w http.ResponseWriter, r *http.Request) {
 	start := time.Now()
 	h.logger.Println("Запрос случайной цитаты")
 
@@ -92,7 +140,7 @@ func (h *Handler) GetRandomQuote(w http.ResponseWriter, r *http.Request) {
 	h.logger.Printf("Возвращена случайная цитата (ID: %d). Время выполнения: %v", quote.ID, time.Since(start))
 }
 
-func (h *Handler) DeleteQuote(w http.ResponseWriter, r *http.Request) {
+func (h *AsyncHandler) handleDelete(w http.ResponseWriter, r *http.Request) {
 	start := time.Now()
 	vars := mux.Vars(r)
 	id := vars["id"]

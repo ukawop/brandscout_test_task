@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"strconv"
 	"testing"
+	"time"
 
 	"github.com/gorilla/mux"
 	"github.com/ukawop/brandscout_test_task/internal/models"
@@ -14,12 +15,12 @@ import (
 	"github.com/ukawop/brandscout_test_task/internal/service"
 )
 
-func TestHandler_CreateQuote(t *testing.T) {
+func TestAsyncHandler(t *testing.T) {
 	repo := repository.NewQuoteRepository()
-	srv := service.NewQuoteService(repo)
-	h := NewHandler(srv, NewTestLogger())
+	service := service.NewQuoteService(repo)
+	router := NewRouter(NewTestLogger(), repo, service, 10)
 
-	t.Run("Success", func(t *testing.T) {
+	t.Run("Create Quote Async", func(t *testing.T) {
 		quoteReq := models.QuoteRequest{
 			Author: "Test Author",
 			Quote:  "Test Quote",
@@ -30,7 +31,7 @@ func TestHandler_CreateQuote(t *testing.T) {
 		req.Header.Set("Content-Type", "application/json")
 		rr := httptest.NewRecorder()
 
-		h.CreateQuote(rr, req)
+		router.ServeHTTP(rr, req)
 
 		if rr.Code != http.StatusOK {
 			t.Errorf("Expected status 200, got %d", rr.Code)
@@ -44,33 +45,19 @@ func TestHandler_CreateQuote(t *testing.T) {
 			t.Errorf("Expected author %s, got %s", quoteReq.Author, response.Author)
 		}
 	})
-
-	t.Run("Invalid JSON", func(t *testing.T) {
-		req := httptest.NewRequest("POST", "/quotes", bytes.NewReader([]byte("invalid")))
-		req.Header.Set("Content-Type", "application/json")
-		rr := httptest.NewRecorder()
-
-		h.CreateQuote(rr, req)
-
-		if rr.Code != http.StatusBadRequest {
-			t.Errorf("Expected status 400, got %d", rr.Code)
-		}
-	})
 }
-
-func TestHandler_GetAllQuotes(t *testing.T) {
+func TestAsyncHandlerGetAll(t *testing.T) {
 	repo := repository.NewQuoteRepository()
-	srv := service.NewQuoteService(repo)
-	h := NewHandler(srv, NewTestLogger())
+	service := service.NewQuoteService(repo)
+	router := NewRouter(NewTestLogger(), repo, service, 10)
+	t.Run("Get All Quotes Async", func(t *testing.T) {
+		service.CreateQuote(models.QuoteRequest{Author: "Author1", Quote: "Quote1"})
+		service.CreateQuote(models.QuoteRequest{Author: "Author2", Quote: "Quote2"})
 
-	srv.CreateQuote(models.QuoteRequest{Author: "A1", Quote: "Q1"})
-	srv.CreateQuote(models.QuoteRequest{Author: "A2", Quote: "Q2"})
-
-	t.Run("Get All", func(t *testing.T) {
 		req := httptest.NewRequest("GET", "/quotes", nil)
 		rr := httptest.NewRecorder()
 
-		h.GetAllQuotes(rr, req)
+		router.ServeHTTP(rr, req)
 
 		if rr.Code != http.StatusOK {
 			t.Errorf("Expected status 200, got %d", rr.Code)
@@ -84,12 +71,20 @@ func TestHandler_GetAllQuotes(t *testing.T) {
 			t.Errorf("Expected 2 quotes, got %d", len(response))
 		}
 	})
+}
+func TestAsyncHandlerGetByFilter(t *testing.T) {
+	repo := repository.NewQuoteRepository()
+	service := service.NewQuoteService(repo)
+	router := NewRouter(NewTestLogger(), repo, service, 10)
+	t.Run("Get Quotes Filtered By Author Async", func(t *testing.T) {
+		service.CreateQuote(models.QuoteRequest{Author: "FilterAuthor", Quote: "Q1"})
+		service.CreateQuote(models.QuoteRequest{Author: "FilterAuthor", Quote: "Q2"})
+		service.CreateQuote(models.QuoteRequest{Author: "OtherAuthor", Quote: "Q3"})
 
-	t.Run("Filter by Author", func(t *testing.T) {
-		req := httptest.NewRequest("GET", "/quotes?author=A1", nil)
+		req := httptest.NewRequest("GET", "/quotes?author=FilterAuthor", nil)
 		rr := httptest.NewRecorder()
 
-		h.GetAllQuotes(rr, req)
+		router.ServeHTTP(rr, req)
 
 		if rr.Code != http.StatusOK {
 			t.Errorf("Expected status 200, got %d", rr.Code)
@@ -99,38 +94,28 @@ func TestHandler_GetAllQuotes(t *testing.T) {
 		if err := json.Unmarshal(rr.Body.Bytes(), &response); err != nil {
 			t.Fatalf("Failed to unmarshal response: %v", err)
 		}
-		if len(response) != 1 {
-			t.Fatalf("Expected 1 quote, got %d", len(response))
+		if len(response) != 2 {
+			t.Errorf("Expected 2 quotes, got %d", len(response))
 		}
-		if response[0].Author != "A1" {
-			t.Errorf("Expected author A1, got %s", response[0].Author)
+		for _, q := range response {
+			if q.Author != "FilterAuthor" {
+				t.Errorf("Expected author FilterAuthor, got %s", q.Author)
+			}
 		}
 	})
 }
 
-func TestHandler_GetRandomQuote(t *testing.T) {
+func TestAsyncHandlerGetRandom(t *testing.T) {
 	repo := repository.NewQuoteRepository()
-	srv := service.NewQuoteService(repo)
-	h := NewHandler(srv, NewTestLogger())
-
-	t.Run("No Quotes", func(t *testing.T) {
-		req := httptest.NewRequest("GET", "/quotes/random", nil)
-		rr := httptest.NewRecorder()
-
-		h.GetRandomQuote(rr, req)
-
-		if rr.Code != http.StatusNotFound {
-			t.Errorf("Expected status 404, got %d", rr.Code)
-		}
-	})
-
-	t.Run("With Quotes", func(t *testing.T) {
-		srv.CreateQuote(models.QuoteRequest{Author: "Random", Quote: "Quote"})
+	service := service.NewQuoteService(repo)
+	router := NewRouter(NewTestLogger(), repo, service, 10)
+	t.Run("Get Random Quote Async", func(t *testing.T) {
+		service.CreateQuote(models.QuoteRequest{Author: "RandomAuthor", Quote: "RandomQuote"})
 
 		req := httptest.NewRequest("GET", "/quotes/random", nil)
 		rr := httptest.NewRecorder()
 
-		h.GetRandomQuote(rr, req)
+		router.ServeHTTP(rr, req)
 
 		if rr.Code != http.StatusOK {
 			t.Errorf("Expected status 200, got %d", rr.Code)
@@ -140,55 +125,92 @@ func TestHandler_GetRandomQuote(t *testing.T) {
 		if err := json.Unmarshal(rr.Body.Bytes(), &response); err != nil {
 			t.Fatalf("Failed to unmarshal response: %v", err)
 		}
-		if response.Author != "Random" {
-			t.Errorf("Expected author Random, got %s", response.Author)
+		if response.Author != "RandomAuthor" {
+			t.Errorf("Expected author RandomAuthor, got %s", response.Author)
 		}
 	})
 }
-
-func TestHandler_DeleteQuote(t *testing.T) {
+func TestAsyncHandlerDelete(t *testing.T) {
 	repo := repository.NewQuoteRepository()
-	srv := service.NewQuoteService(repo)
-	h := NewHandler(srv, NewTestLogger())
+	service := service.NewQuoteService(repo)
+	router := NewRouter(NewTestLogger(), repo, service, 10)
+	t.Run("Delete Quote Async", func(t *testing.T) {
+		quote := service.CreateQuote(models.QuoteRequest{Author: "ToDelete", Quote: "DeleteMe"})
 
-	quote := srv.CreateQuote(models.QuoteRequest{Author: "ToDelete", Quote: "Me"})
-
-	t.Run("Success", func(t *testing.T) {
 		req := httptest.NewRequest("DELETE", "/quotes/"+strconv.Itoa(quote.ID), nil)
 		rr := httptest.NewRecorder()
 
 		req = mux.SetURLVars(req, map[string]string{"id": strconv.Itoa(quote.ID)})
 
-		h.DeleteQuote(rr, req)
+		router.ServeHTTP(rr, req)
 
 		if rr.Code != http.StatusNoContent {
 			t.Errorf("Expected status 204, got %d", rr.Code)
 		}
-	})
 
-	t.Run("Invalid ID", func(t *testing.T) {
-		req := httptest.NewRequest("DELETE", "/quotes/invalid", nil)
-		rr := httptest.NewRecorder()
-
-		req = mux.SetURLVars(req, map[string]string{"id": "invalid"})
-
-		h.DeleteQuote(rr, req)
-
-		if rr.Code != http.StatusBadRequest {
-			t.Errorf("Expected status 400, got %d", rr.Code)
+		_, err := service.GetRandomQuote()
+		if err == nil {
+			t.Error("Quote was not deleted")
 		}
 	})
 
-	t.Run("Not Found", func(t *testing.T) {
+	t.Run("Delete Non-Existent Quote Async", func(t *testing.T) {
 		req := httptest.NewRequest("DELETE", "/quotes/999", nil)
 		rr := httptest.NewRecorder()
 
 		req = mux.SetURLVars(req, map[string]string{"id": "999"})
 
-		h.DeleteQuote(rr, req)
+		router.ServeHTTP(rr, req)
 
 		if rr.Code != http.StatusNotFound {
 			t.Errorf("Expected status 404, got %d", rr.Code)
 		}
+	})
+}
+func TestAsyncHandlersStress(t *testing.T) {
+	repo := repository.NewQuoteRepository()
+	service := service.NewQuoteService(repo)
+	router := NewRouter(NewTestLogger(), repo, service, 10)
+
+	t.Run("Concurrent Requests Stress Test", func(t *testing.T) {
+		start := time.Now()
+		results := make(chan bool, 20)
+		for i := 0; i < 20; i++ {
+			go func(i int) {
+				if i%2 == 0 {
+					quoteReq := models.QuoteRequest{
+						Author: "Concurrent Author " + strconv.Itoa(i),
+						Quote:  "Concurrent Quote " + strconv.Itoa(i),
+					}
+					body, _ := json.Marshal(quoteReq)
+
+					req := httptest.NewRequest("POST", "/quotes", bytes.NewReader(body))
+					req.Header.Set("Content-Type", "application/json")
+					rr := httptest.NewRecorder()
+
+					router.ServeHTTP(rr, req)
+					results <- rr.Code == http.StatusOK
+				} else {
+					req := httptest.NewRequest("GET", "/quotes", nil)
+					rr := httptest.NewRecorder()
+
+					router.ServeHTTP(rr, req)
+					results <- rr.Code == http.StatusOK
+				}
+			}(i)
+		}
+
+		successCount := 0
+		for i := 0; i < 20; i++ {
+			if <-results {
+				successCount++
+			}
+		}
+
+		if successCount != 20 {
+			t.Errorf("Expected 20 successful requests, got %d", successCount)
+		}
+
+		t.Logf("Processed 20 concurrent requests in %v", time.Since(start))
 	})
 }

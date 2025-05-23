@@ -1,11 +1,13 @@
 package config
 
 type Config struct {
-	ServerAddress string
+	ServerAddress     string
+	MaxHandlerWorkers int
 }
 
-func NewConfig() *Config {
+func NewConfig(maxWorkers int) *Config {
 	return &Config{
-		ServerAddress: ":8080",
+		ServerAddress:     ":8080",
+		MaxHandlerWorkers: maxWorkers,
 	}
 }

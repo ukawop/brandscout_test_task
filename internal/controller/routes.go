@@ -2,7 +2,6 @@ package controller
 
 import (
 	"log"
-	"os"
 
 	"github.com/gorilla/mux"
 
@@ -10,19 +9,15 @@ import (
 	"github.com/ukawop/brandscout_test_task/internal/service"
 )
 
-func NewRouter() *mux.Router {
-	logger := log.New(os.Stdout, "HTTP: ", log.LstdFlags|log.Lshortfile)
-
-	repo := repository.NewQuoteRepository()
-	service := service.NewQuoteService(repo)
-	handler := NewHandler(service, logger)
+func NewRouter(logger *log.Logger, repo *repository.QuoteRepository, service *service.QuoteService, maxWorkers int) *mux.Router {
+	handler := NewAsyncHandler(service, logger, maxWorkers)
 
 	router := mux.NewRouter()
 
-	router.HandleFunc("/quotes", handler.CreateQuote).Methods("POST")
-	router.HandleFunc("/quotes", handler.GetAllQuotes).Methods("GET")
-	router.HandleFunc("/quotes/random", handler.GetRandomQuote).Methods("GET")
-	router.HandleFunc("/quotes/{id}", handler.DeleteQuote).Methods("DELETE")
+	router.HandleFunc("/quotes", handler.wrapHandler("create")).Methods("POST")
+	router.HandleFunc("/quotes", handler.wrapHandler("getAll")).Methods("GET")
+	router.HandleFunc("/quotes/random", handler.wrapHandler("getRandom")).Methods("GET")
+	router.HandleFunc("/quotes/{id}", handler.wrapHandler("delete")).Methods("DELETE")
 
 	return router
 }

@@ -10,7 +10,7 @@ import (
 )
 
 var (
-	ErrQuoteNotFound = errors.New("цитата не найдена")
+	ErrQuoteNotFound = errors.New("quote not found")
 )
 
 type QuoteRepository struct {
@@ -47,7 +47,9 @@ func (r *QuoteRepository) GetAll() []models.Quote {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 
-	return r.quotes
+	quotes := make([]models.Quote, len(r.quotes))
+	copy(quotes, r.quotes)
+	return quotes
 }
 
 func (r *QuoteRepository) GetByAuthor(author string) []models.Quote {
@@ -60,7 +62,6 @@ func (r *QuoteRepository) GetByAuthor(author string) []models.Quote {
 			filtered = append(filtered, q)
 		}
 	}
-
 	return filtered
 }
 
@@ -86,6 +87,5 @@ func (r *QuoteRepository) Delete(id int) error {
 			return nil
 		}
 	}
-
 	return ErrQuoteNotFound
 }
