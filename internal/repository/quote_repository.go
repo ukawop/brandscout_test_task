@@ -58,7 +58,7 @@ func (r *QuoteRepository) GetByAuthor(author string) []models.Quote {
 
 	var filtered []models.Quote
 	for _, q := range r.quotes {
-		if q.Author == author {
+		if q.Author == author { // TODO сделать через мапу
 			filtered = append(filtered, q)
 		}
 	}
