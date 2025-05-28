@@ -36,8 +36,13 @@ func TestQuoteRepository_GetAll(t *testing.T) {
 	if len(quotes) != 2 {
 		t.Fatalf("Expected 2 quotes, got %d", len(quotes))
 	}
-	if quotes[0].Author != "A1" {
-		t.Errorf("Expected first author A1, got %s", quotes[0].Author)
+	authors := make(map[string]bool)
+	for _, q := range quotes {
+		authors[q.Author] = true
+	}
+
+	if !authors["A1"] || !authors["A2"] {
+		t.Errorf("Expected both authors A1 and A2, got %v", authors)
 	}
 }
 
